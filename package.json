@@ -1,0 +1,23 @@
+{
+  "name": "songlyricsvueapi",
+  "version": "1.0.0",
+  "description": "",
+  "homepage": "https://github.com/jiggly129/api#readme",
+  "bugs": {
+    "url": "https://github.com/jiggly129/api/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jiggly129/api.git"
+  },
+  "license": "ISC",
+  "author": "",
+  "type": "commonjs",
+  "main": "app.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "devDependencies": {
+    "wrangler": "^4.127.1"
+  }
+}
