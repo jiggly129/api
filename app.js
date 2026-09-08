@@ -1,11 +1,36 @@
+const CORS_HEADERS = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "GET, OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type",
+};
+
+function jsonResponse(data, status = 200) {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: {
+      ...CORS_HEADERS,
+      "Content-Type": "application/json; charset=utf-8",
+    },
+  });
+}
+
 export default {
   async fetch(request) {
+    // Handle CORS preflight
+    if (request.method === "OPTIONS") {
+      return new Response(null, {
+        status: 204,
+        headers: CORS_HEADERS,
+      });
+    }
+
     const url = new URL(request.url);
 
-    // Example:
-    // /lyrics?artist=Daft%20Punk&song=Get%20Lucky
     if (url.pathname !== "/lyrics") {
-      return new Response("Not found", { status: 404 });
+      return new Response("Not found", {
+        status: 404,
+        headers: CORS_HEADERS,
+      });
     }
 
     const artist = url.searchParams.get("artist")?.trim();
@@ -13,11 +38,11 @@ export default {
     const duration = url.searchParams.get("duration");
 
     if (!artist || !song) {
-      return Response.json(
+      return jsonResponse(
         {
-          error: "Missing artist or song"
+          error: "Missing artist or song",
         },
-        { status: 400 }
+        400
       );
     }
 
@@ -25,6 +50,7 @@ export default {
       // --------------------------------
       // Try LRCLIB
       // --------------------------------
+
       const artists = [];
 
       const addArtist = (value) => {
@@ -35,7 +61,7 @@ export default {
         if (
           cleaned &&
           !artists.some(
-            a => a.toLowerCase() === cleaned.toLowerCase()
+            (a) => a.toLowerCase() === cleaned.toLowerCase()
           )
         ) {
           artists.push(cleaned);
@@ -44,8 +70,8 @@ export default {
 
       addArtist(artist);
 
-      // Also try artists separated by "-"
-      if (artist.includes("-")) {
+      // Also try artists separated by -, – or —
+      if (/[-–—]/.test(artist)) {
         artist
           .split(/\s*[-–—]\s*/)
           .forEach(addArtist);
@@ -54,7 +80,7 @@ export default {
       for (const artistCandidate of artists) {
         const params = new URLSearchParams({
           artist_name: artistCandidate,
-          track_name: song
+          track_name: song,
         });
 
         if (
@@ -69,22 +95,31 @@ export default {
         }
 
         const response = await fetch(
-          `https://lrclib.net/api/get?${params.toString()}`
+          `https://lrclib.net/api/get?${params.toString()}`,
+          {
+            headers: {
+              Accept: "application/json",
+              "User-Agent": "LyricsWorker/1.0",
+            },
+          }
         );
 
-        if (!response.ok) continue;
+        if (!response.ok) {
+          continue;
+        }
 
         const data = await response.json();
 
-        // -------------------------------
+        // --------------------------------
         // Synced lyrics
-        // -------------------------------
+        // --------------------------------
+
         if (data?.syncedLyrics) {
           const lyrics = [];
 
           data.syncedLyrics
             .split("\n")
-            .forEach(line => {
+            .forEach((line) => {
               const match = line.match(
                 /^\[(\d+):(\d+(?:\.\d+)?)\](.*)$/
               );
@@ -96,39 +131,40 @@ export default {
 
               lyrics.push({
                 seconds: minutes * 60 + seconds,
-                lyrics: match[3]
+                lyrics: match[3].trim(),
               });
             });
 
-          return Response.json({
+          return jsonResponse({
             song: data.trackName,
             artist: data.artistName,
             lyrics,
             synced: true,
             fallback: false,
-            duration: data.duration
+            duration: data.duration,
           });
         }
 
-        // -------------------------------
+        // --------------------------------
         // Plain lyrics
-        // -------------------------------
+        // --------------------------------
+
         if (data?.plainLyrics) {
           const lyrics = data.plainLyrics
             .split("\n")
-            .map(line => line.trim())
-            .filter(line => line !== "")
-            .map(line => ({
-              lyrics: line
+            .map((line) => line.trim())
+            .filter((line) => line !== "")
+            .map((line) => ({
+              lyrics: line,
             }));
 
-          return Response.json({
+          return jsonResponse({
             song: data.trackName,
             artist: data.artistName,
             lyrics,
             synced: false,
             fallback: false,
-            duration: data.duration
+            duration: data.duration,
           });
         }
       }
@@ -136,44 +172,50 @@ export default {
       // --------------------------------
       // Textyl fallback
       // --------------------------------
-      const query = encodeURIComponent(
-        `${artist} ${song}`
-      );
+
+      const query = encodeURIComponent(`${artist} ${song}`);
 
       const fallbackResponse = await fetch(
-        `https://api.textyl.co/api/lyrics?q=${query}`
+        `https://api.textyl.co/api/lyrics?q=${query}`,
+        {
+          headers: {
+            Accept: "application/json",
+          },
+        }
       );
 
       if (fallbackResponse.ok) {
         const lyrics = await fallbackResponse.json();
 
-        lyrics.forEach(lyric => {
-          lyric.seconds = `${lyric.seconds}.00`;
-        });
+        if (Array.isArray(lyrics)) {
+          lyrics.forEach((lyric) => {
+            if (lyric.seconds !== undefined) {
+              lyric.seconds = Number(lyric.seconds);
+            }
+          });
+        }
 
-        return Response.json({
+        return jsonResponse({
           lyrics,
-          fallback: true
+          fallback: true,
         });
       }
 
-      // Nothing found
-      return Response.json(
+      return jsonResponse(
         {
-          error: "Lyrics not found"
+          error: "Lyrics not found",
         },
-        { status: 404 }
+        404
       );
-
     } catch (error) {
-      console.error(error);
+      console.error("Lyrics worker error:", error);
 
-      return Response.json(
+      return jsonResponse(
         {
-          error: "Lyrics service failed"
+          error: "Lyrics service failed",
         },
-        { status: 500 }
+        500
       );
     }
-  }
+  },
 };
